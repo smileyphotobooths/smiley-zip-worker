@@ -1,58 +1,94 @@
 import os
-import redis
+import time
 import json
-import boto3
 import tempfile
 import zipfile
+import boto3
 import requests
-from time import sleep
 
-r = redis.Redis.from_url(os.getenv("REDIS_URL"))
-s3 = boto3.client("s3")
+# === Redis Setup ===
+UPSTASH_REDIS_REST_URL = os.environ["UPSTASH_REDIS_REST_URL"]
+UPSTASH_REDIS_REST_TOKEN = os.environ["UPSTASH_REDIS_REST_TOKEN"]
 
-BUCKET = os.getenv("S3_BUCKET")
-ZAPIER_WEBHOOK = os.getenv("ZAPIER_WEBHOOK")
+# === AWS S3 Setup ===
+AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
+AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
+AWS_REGION = os.environ.get("AWS_REGION", "us-west-1")
+BUCKET = os.environ["S3_BUCKET_NAME"]
 
-def zip_images(event_id, gallery_type, email):
-    prefix = f"galleries/{event_id}/{gallery_type}/"
-    result = s3.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
-    files = result.get("Contents", [])
-    
-    if not files:
-        return None
+# === Zapier Webhook ===
+ZAPIER_WEBHOOK_URL = os.environ["ZAPIER_WEBHOOK_URL"]
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, f"{event_id}-{gallery_type}.zip")
-        with zipfile.ZipFile(zip_path, "w") as zipf:
-            for obj in files:
-                key = obj["Key"]
-                filename = key.split("/")[-1]
-                temp_file = os.path.join(tmpdir, filename)
-                s3.download_file(BUCKET, key, temp_file)
-                zipf.write(temp_file, arcname=filename)
+s3 = boto3.client(
+    "s3",
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION
+)
 
-        upload_key = f"zips/{event_id}-{gallery_type}.zip"
-        s3.upload_file(zip_path, BUCKET, upload_key)
+def fetch_job():
+    response = requests.post(
+        f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
+        headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
+    )
+    if response.status_code == 200 and response.text:
+        try:
+            return json.loads(response.text)
+        except Exception:
+            print("Invalid JSON in queue:", response.text)
+    return None
 
-        return s3.generate_presigned_url(
-            ClientMethod="get_object",
-            Params={"Bucket": BUCKET, "Key": upload_key},
-            ExpiresIn=604800  # 7 days
-        )
+def get_keys(event_id, gallery_type):
+    prefix = f"{event_id}/{gallery_type}/"
+    paginator = s3.get_paginator("list_objects_v2")
+    pages = paginator.paginate(Bucket=BUCKET, Prefix=prefix)
+
+    keys = []
+    for page in pages:
+        contents = page.get("Contents", [])
+        for obj in contents:
+            keys.append(obj["Key"])
+    return keys
+
+def zip_and_upload(event_id, gallery_type, email):
+    keys = get_keys(event_id, gallery_type)
+    if not keys:
+        print(f"No files found for {event_id}/{gallery_type}")
+        return
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_zip:
+        with zipfile.ZipFile(tmp_zip.name, 'w') as zipf:
+            for key in keys:
+                with tempfile.NamedTemporaryFile() as tmp_file:
+                    s3.download_file(BUCKET, key, tmp_file.name)
+                    zipf.write(tmp_file.name, arcname=os.path.basename(key))
+
+        zip_key = f"{event_id}/zips/{gallery_type}.zip"
+        s3.upload_file(tmp_zip.name, BUCKET, zip_key)
+        zip_url = f"https://{BUCKET}.s3.{AWS_REGION}.amazonaws.com/{zip_key}"
+        print("ZIP uploaded to:", zip_url)
+
+        payload = {
+            "email": email,
+            "zip_url": zip_url,
+            "event_id": event_id,
+            "gallery_type": gallery_type
+        }
+        zap_response = requests.post(ZAPIER_WEBHOOK_URL, json=payload)
+        print("Zapier response:", zap_response.status_code)
 
 while True:
-    job_data = r.lpop("zip_jobs")
-    if not job_data:
-        sleep(2)
-        continue
-
-    job = json.loads(job_data)
-    event_id = job.get("event_id")
-    gallery_type = job.get("type")
-    email = job.get("email")
-
-    url = zip_images(event_id, gallery_type, email)
-
-    if url:
-        payload = {"email": email, "url": url}
-        requests.post(ZAPIER_WEBHOOK, json=payload)
+    try:
+        job = fetch_job()
+        if job:
+            print("Processing job:", job)
+            zip_and_upload(
+                event_id=job["event_id"],
+                gallery_type=job["gallery_type"],
+                email=job["email"]
+            )
+        else:
+            time.sleep(2)
+    except Exception as e:
+        print("Error in main loop:", str(e))
+        time.sleep(5)
