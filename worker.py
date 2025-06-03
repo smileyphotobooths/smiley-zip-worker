@@ -31,20 +31,12 @@ def fetch_job():
         f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
         headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
     )
-    
     print("Raw Redis response:", response.status_code, response.text)
-
     if response.status_code == 200 and response.text:
         try:
-            outer = json.loads(response.text)
-            if isinstance(outer, dict) and "result" in outer:
-                raw_result = outer["result"]
-                if raw_result:
-                    job_data = json.loads(raw_result)  # first decode
-                    if isinstance(job_data, dict) and "value" in job_data:
-                        return job_data["value"]  # final job payload
+            return json.loads(response.text)
         except Exception as e:
-            print("Invalid job format:", e)
+            print("Failed to parse job:", response.text, str(e))
     return None
 
 def get_keys(event_id, gallery_type):
