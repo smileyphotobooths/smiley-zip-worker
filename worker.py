@@ -32,19 +32,17 @@ def fetch_job():
             f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
             headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
         )
-
         if response.status_code == 200 and response.text:
-            try:
-                job = json.loads(response.text)
-                if isinstance(job, dict) and "event_id" in job:
-                    return job
-                else:
-                    print("Skipped invalid job:", response.text)
-            except json.JSONDecodeError:
-                print("Invalid JSON in queue:", response.text)
+            raw = response.text.strip()
 
+            # Try parsing multiple times depending on format
+            if raw.startswith('{'):
+                return json.loads(raw)
+            if raw.startswith('"') and raw.endswith('"'):
+                unquoted = json.loads(raw)  # removes outer quotes
+                return json.loads(unquoted)
     except Exception as e:
-        print("Error fetching job:", str(e))
+        print("Error parsing job:", str(e))
 
     return None
 
