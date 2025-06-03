@@ -32,9 +32,22 @@ def fetch_job():
         headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
     )
     print("Raw Redis response:", response.status_code, response.text)
+
     if response.status_code == 200 and response.text:
         try:
-            return json.loads(response.text)
+            job = json.loads(response.text)
+
+            # Check if Upstash wrapped the payload as a string (e.g., "\"{...}\"")
+            if isinstance(job, dict) and 'result' in job:
+                raw_result = job['result']
+                if raw_result:
+                    # Handle case where result is still a stringified JSON object
+                    if isinstance(raw_result, str):
+                        job = json.loads(raw_result)
+                    else:
+                        job = raw_result
+
+            return job
         except Exception as e:
             print("Failed to parse job:", response.text, str(e))
     return None
