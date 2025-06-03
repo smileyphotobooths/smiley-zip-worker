@@ -31,6 +31,9 @@ def fetch_job():
         f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
         headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
     )
+    
+    print("Raw Redis response:", response.status_code, response.text)
+
     if response.status_code == 200 and response.text:
         try:
             outer = json.loads(response.text)
