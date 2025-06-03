@@ -66,7 +66,7 @@ def fetch_job():
     return None
 
 def get_keys(event_id, gallery_type):
-    prefix = f"{event_id}/{gallery_type}/"
+    prefix = f"galleries/{event_id}/{gallery_type}/"  # <- ADD 'galleries/' prefix
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=BUCKET, Prefix=prefix)
 
