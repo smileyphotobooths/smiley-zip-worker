@@ -27,15 +27,25 @@ s3 = boto3.client(
 )
 
 def fetch_job():
-    response = requests.post(
-        f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
-        headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
-    )
-    if response.status_code == 200 and response.text:
-        try:
-            return json.loads(response.text)
-        except Exception:
-            print("Invalid JSON in queue:", response.text)
+    try:
+        response = requests.post(
+            f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
+            headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
+        )
+
+        if response.status_code == 200 and response.text:
+            try:
+                job = json.loads(response.text)
+                if isinstance(job, dict) and "event_id" in job:
+                    return job
+                else:
+                    print("Skipped invalid job:", response.text)
+            except json.JSONDecodeError:
+                print("Invalid JSON in queue:", response.text)
+
+    except Exception as e:
+        print("Error fetching job:", str(e))
+
     return None
 
 def get_keys(event_id, gallery_type):
