@@ -61,6 +61,8 @@ def get_keys(event_id, gallery_type):
             keys.append(obj["Key"])
     return keys
 
+import datetime
+
 def zip_and_upload(event_id, gallery_type, email):
     keys = get_keys(event_id, gallery_type)
     if not keys:
@@ -74,10 +76,16 @@ def zip_and_upload(event_id, gallery_type, email):
                     s3.download_file(BUCKET, key, tmp_file.name)
                     zipf.write(tmp_file.name, arcname=os.path.basename(key))
 
-        # ✅ FIXED zip key format
         zip_key = f"zips/{event_id}-{gallery_type}.zip"
         s3.upload_file(tmp_zip.name, BUCKET, zip_key)
-        zip_url = f"https://{BUCKET}.s3.{AWS_REGION}.amazonaws.com/{zip_key}"
+
+        # Generate a pre-signed URL (valid for 24 hours)
+        zip_url = s3.generate_presigned_url(
+            ClientMethod='get_object',
+            Params={'Bucket': BUCKET, 'Key': zip_key},
+            ExpiresIn=86400  # 24 hours
+        )
+
         print("ZIP uploaded to:", zip_url)
 
         payload = {
