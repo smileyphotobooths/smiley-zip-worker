@@ -74,7 +74,8 @@ def zip_and_upload(event_id, gallery_type, email):
                     s3.download_file(BUCKET, key, tmp_file.name)
                     zipf.write(tmp_file.name, arcname=os.path.basename(key))
 
-        zip_key = f"{event_id}/zips/{gallery_type}.zip"
+        # ✅ FIXED zip key format
+        zip_key = f"zips/{event_id}-{gallery_type}.zip"
         s3.upload_file(tmp_zip.name, BUCKET, zip_key)
         zip_url = f"https://{BUCKET}.s3.{AWS_REGION}.amazonaws.com/{zip_key}"
         print("ZIP uploaded to:", zip_url)
@@ -85,8 +86,10 @@ def zip_and_upload(event_id, gallery_type, email):
             "event_id": event_id,
             "gallery_type": gallery_type
         }
+        print("Sending this payload to Zapier:", json.dumps(payload, indent=2))
         zap_response = requests.post(ZAPIER_WEBHOOK_URL, json=payload)
         print("Zapier response:", zap_response.status_code)
+        print("Zapier response body:", zap_response.text)
 
 while True:
     try:
