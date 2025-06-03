@@ -32,41 +32,19 @@ def fetch_job():
         headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
     )
     print("Raw Redis response:", response.status_code, response.text)
-
-    if response.status_code == 200:
+    if response.status_code == 200 and response.text:
         try:
-            data = json.loads(response.text)
-
-            if not data or not data.get("result"):
-                print("No job returned from Redis.")
-                return None
-
-            raw = data["result"]
-
-            # If result is a stringified JSON object, decode it again
-            if isinstance(raw, str):
-                try:
-                    raw = json.loads(raw)
-                except json.JSONDecodeError as e:
-                    print("Failed to decode job string:", raw)
-                    return None
-
-            # If wrapped inside a 'value' key (like Zapier sends), unwrap it
-            if isinstance(raw, dict) and "value" in raw:
-                raw = raw["value"]
-
-            # Final check: must have required fields
-            if all(k in raw for k in ("event_id", "gallery_type", "email")):
-                return raw
-            else:
-                print("Job missing required fields:", raw)
+            outer = json.loads(response.text)
+            if isinstance(outer, dict) and "result" in outer and outer["result"]:
+                inner = json.loads(outer["result"])
+                if isinstance(inner, dict) and "value" in inner:
+                    return inner["value"]
         except Exception as e:
-            print("Error decoding Redis job:", str(e))
-
+            print("Failed to parse job:", str(e))
     return None
 
 def get_keys(event_id, gallery_type):
-    prefix = f"galleries/{event_id}/{gallery_type}/"  # <- ADD 'galleries/' prefix
+    prefix = f"galleries/{event_id}/{gallery_type}/"  # Corrected path
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=BUCKET, Prefix=prefix)
 
@@ -109,17 +87,13 @@ while True:
         job = fetch_job()
         if job:
             print("Processing job:", job)
-
-            # Handle Zapier's nested format if needed
-            if isinstance(job, dict) and 'value' in job and isinstance(job['value'], dict):
-                job = job['value']
-
             zip_and_upload(
                 event_id=job["event_id"],
                 gallery_type=job["gallery_type"],
                 email=job["email"]
             )
         else:
+            print("No job returned from Redis.")
             time.sleep(2)
     except Exception as e:
         print("Error in main loop:", str(e))
