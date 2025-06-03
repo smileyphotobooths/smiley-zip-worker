@@ -83,6 +83,11 @@ while True:
         job = fetch_job()
         if job:
             print("Processing job:", job)
+
+            # Handle Zapier's nested format if needed
+            if isinstance(job, dict) and 'value' in job and isinstance(job['value'], dict):
+                job = job['value']
+
             zip_and_upload(
                 event_id=job["event_id"],
                 gallery_type=job["gallery_type"],
