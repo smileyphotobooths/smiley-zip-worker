@@ -32,15 +32,21 @@ def fetch_job():
         headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
     )
     print("Raw Redis response:", response.status_code, response.text)
+
     if response.status_code == 200 and response.text:
         try:
             outer = json.loads(response.text)
-            if isinstance(outer, dict) and "result" in outer and outer["result"]:
-                inner = json.loads(outer["result"])
-                if isinstance(inner, dict) and "value" in inner:
-                    return inner["value"]
+            inner = outer.get("result")
+            if not inner:
+                return None
+            # If it's a nested JSON string, decode it
+            if isinstance(inner, str):
+                inner = json.loads(inner)
+            # Some versions wrap it inside {"value": {...}}
+            return inner.get("value", inner)
         except Exception as e:
             print("Failed to parse job:", str(e))
+            return None
     return None
 
 def get_keys(event_id, gallery_type):
