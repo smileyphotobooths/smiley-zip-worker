@@ -33,23 +33,36 @@ def fetch_job():
     )
     print("Raw Redis response:", response.status_code, response.text)
 
-    if response.status_code == 200 and response.text:
+    if response.status_code == 200:
         try:
-            job = json.loads(response.text)
+            data = json.loads(response.text)
 
-            # Check if Upstash wrapped the payload as a string (e.g., "\"{...}\"")
-            if isinstance(job, dict) and 'result' in job:
-                raw_result = job['result']
-                if raw_result:
-                    # Handle case where result is still a stringified JSON object
-                    if isinstance(raw_result, str):
-                        job = json.loads(raw_result)
-                    else:
-                        job = raw_result
+            if not data or not data.get("result"):
+                print("No job returned from Redis.")
+                return None
 
-            return job
+            raw = data["result"]
+
+            # If result is a stringified JSON object, decode it again
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    print("Failed to decode job string:", raw)
+                    return None
+
+            # If wrapped inside a 'value' key (like Zapier sends), unwrap it
+            if isinstance(raw, dict) and "value" in raw:
+                raw = raw["value"]
+
+            # Final check: must have required fields
+            if all(k in raw for k in ("event_id", "gallery_type", "email")):
+                return raw
+            else:
+                print("Job missing required fields:", raw)
         except Exception as e:
-            print("Failed to parse job:", response.text, str(e))
+            print("Error decoding Redis job:", str(e))
+
     return None
 
 def get_keys(event_id, gallery_type):
