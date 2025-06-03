@@ -27,23 +27,21 @@ s3 = boto3.client(
 )
 
 def fetch_job():
-    try:
-        response = requests.post(
-            f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
-            headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
-        )
-        if response.status_code == 200 and response.text:
-            raw = response.text.strip()
-
-            # Try parsing multiple times depending on format
-            if raw.startswith('{'):
-                return json.loads(raw)
-            if raw.startswith('"') and raw.endswith('"'):
-                unquoted = json.loads(raw)  # removes outer quotes
-                return json.loads(unquoted)
-    except Exception as e:
-        print("Error parsing job:", str(e))
-
+    response = requests.post(
+        f"{UPSTASH_REDIS_REST_URL}/lpop/zip_jobs",
+        headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"}
+    )
+    if response.status_code == 200 and response.text:
+        try:
+            outer = json.loads(response.text)
+            if isinstance(outer, dict) and "result" in outer:
+                raw_result = outer["result"]
+                if raw_result:
+                    job_data = json.loads(raw_result)  # first decode
+                    if isinstance(job_data, dict) and "value" in job_data:
+                        return job_data["value"]  # final job payload
+        except Exception as e:
+            print("Invalid job format:", e)
     return None
 
 def get_keys(event_id, gallery_type):
