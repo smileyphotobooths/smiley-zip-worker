@@ -39,10 +39,9 @@ def fetch_job():
             inner = outer.get("result")
             if not inner:
                 return None
-            # If it's a nested JSON string, decode it
+            # Decode nested JSON string if needed
             if isinstance(inner, str):
                 inner = json.loads(inner)
-            # Some versions wrap it inside {"value": {...}}
             return inner.get("value", inner)
         except Exception as e:
             print("Failed to parse job:", str(e))
@@ -50,7 +49,7 @@ def fetch_job():
     return None
 
 def get_keys(event_id, gallery_type):
-    prefix = f"galleries/{event_id}/{gallery_type}/"  # Corrected path
+    prefix = f"galleries/{event_id}/{gallery_type}/"
     paginator = s3.get_paginator("list_objects_v2")
     pages = paginator.paginate(Bucket=BUCKET, Prefix=prefix)
 
@@ -60,8 +59,6 @@ def get_keys(event_id, gallery_type):
         for obj in contents:
             keys.append(obj["Key"])
     return keys
-
-import datetime
 
 def zip_and_upload(event_id, gallery_type, email):
     keys = get_keys(event_id, gallery_type)
@@ -83,7 +80,7 @@ def zip_and_upload(event_id, gallery_type, email):
         zip_url = s3.generate_presigned_url(
             ClientMethod='get_object',
             Params={'Bucket': BUCKET, 'Key': zip_key},
-            ExpiresIn=86400  # 24 hours
+            ExpiresIn=86400
         )
 
         print("ZIP uploaded to:", zip_url)
@@ -94,11 +91,13 @@ def zip_and_upload(event_id, gallery_type, email):
             "event_id": event_id,
             "gallery_type": gallery_type
         }
+
         print("Sending this payload to Zapier:", json.dumps(payload, indent=2))
         zap_response = requests.post(ZAPIER_WEBHOOK_URL, json=payload)
         print("Zapier response:", zap_response.status_code)
         print("Zapier response body:", zap_response.text)
 
+# === Worker Loop ===
 while True:
     try:
         job = fetch_job()
@@ -110,8 +109,8 @@ while True:
                 email=job["email"]
             )
         else:
-            print("No job returned from Redis.")
-            time.sleep(2)
+            print("No job returned from Redis. Sleeping 30 seconds...")
+            time.sleep(30)
     except Exception as e:
         print("Error in main loop:", str(e))
-        time.sleep(5)
+        time.sleep(10)
